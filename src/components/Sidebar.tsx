@@ -65,25 +65,45 @@ function CloseIcon() {
 export default function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [profileSrc, setProfileSrc] = useState("./assets/profile.jpeg");
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+    // Load profile image from API (falls back to static if not set)
+    fetch("/api/profile")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.url) setProfileSrc(data.url);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const handleNavClick = () => {
-    setMenuOpen(false);
-  };
+  const profileImg = (size: number) => (
+    <div
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "50%",
+        overflow: "hidden",
+      }}
+    >
+      <img
+        src={profileSrc}
+        alt="Profile"
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </div>
+  );
 
-  // Mobile header layout
   if (isMobile) {
     return (
       <>
-        {/* Mobile Header */}
         <header
           style={{
             position: "fixed",
@@ -100,27 +120,7 @@ export default function Sidebar() {
             borderBottom: "1px solid rgba(255,255,255,0.1)",
           }}
         >
-          {/* Profile Pic */}
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "50%",
-              overflow: "hidden",
-            }}
-          >
-            <img
-              src="./assets/profile.jpeg"
-              alt="Profile"
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
-          </div>
-
-          {/* Menu Button */}
+          {profileImg(40)}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             style={{
@@ -135,7 +135,6 @@ export default function Sidebar() {
           </button>
         </header>
 
-        {/* Mobile Menu Overlay */}
         {menuOpen && (
           <div
             style={{
@@ -157,7 +156,7 @@ export default function Sidebar() {
               <a
                 key={link.label}
                 href="#portfolio"
-                onClick={handleNavClick}
+                onClick={() => setMenuOpen(false)}
                 style={{
                   color: "white",
                   textDecoration: "none",
@@ -169,15 +168,7 @@ export default function Sidebar() {
                 {link.label}
               </a>
             ))}
-
-            {/* Social Icons */}
-            <div
-              style={{
-                display: "flex",
-                gap: "32px",
-                marginTop: "24px",
-              }}
-            >
+            <div style={{ display: "flex", gap: "32px", marginTop: "24px" }}>
               <a
                 href="https://www.facebook.com/sylvia.lykke?locale=da_DK"
                 target="_blank"
@@ -201,7 +192,6 @@ export default function Sidebar() {
     );
   }
 
-  // Desktop/Tablet sidebar
   return (
     <aside
       style={{
@@ -216,7 +206,6 @@ export default function Sidebar() {
         zIndex: 10,
       }}
     >
-      {/* Logo / Profile Picture */}
       <div
         style={{
           padding: "80px 24px 24px",
@@ -224,28 +213,9 @@ export default function Sidebar() {
           justifyContent: "center",
         }}
       >
-        <div
-          style={{
-            width: "70px",
-            height: "70px",
-            borderRadius: "50%",
-            overflow: "hidden",
-            border: "2px solid none",
-          }}
-        >
-          <img
-            src="./assets/profile.jpeg"
-            alt="Profile"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
-        </div>
+        {profileImg(70)}
       </div>
 
-      {/* Nav Links */}
       <nav
         style={{
           flex: 1,
@@ -281,7 +251,6 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Social Icons */}
       <div
         style={{
           display: "flex",
@@ -295,10 +264,7 @@ export default function Sidebar() {
           href="https://www.facebook.com/sylvia.lykke?locale=da_DK"
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            color: "rgba(255,255,255,0.6)",
-            transition: "color 0.2s",
-          }}
+          style={{ color: "rgba(255,255,255,0.6)", transition: "color 0.2s" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "white")}
           onMouseLeave={(e) =>
             (e.currentTarget.style.color = "rgba(255,255,255,0.6)")
@@ -310,10 +276,7 @@ export default function Sidebar() {
           href="https://www.instagram.com/sylle_jensen28/"
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            color: "rgba(255,255,255,0.6)",
-            transition: "color 0.2s",
-          }}
+          style={{ color: "rgba(255,255,255,0.6)", transition: "color 0.2s" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "white")}
           onMouseLeave={(e) =>
             (e.currentTarget.style.color = "rgba(255,255,255,0.6)")

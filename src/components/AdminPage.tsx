@@ -18,16 +18,22 @@ interface DbImage {
   created_at: string;
 }
 
+interface FileItem {
+  file: File;
+  preview: string;
+  category: string;
+  description: string;
+  status: "pending" | "uploading" | "done" | "error";
+  message: string;
+}
+
 export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [authed, setAuthed] = useState(false);
   const [images, setImages] = useState<DbImage[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [category, setCategory] = useState("potræt");
-  const [description, setDescription] = useState("");
+  const [fileItems, setFileItems] = useState<FileItem[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
@@ -67,11 +73,19 @@ export default function AdminPage() {
     setAuthed(true);
   };
 
-  const addFiles = (incoming: File[]) =>
-    setFiles((prev) => [
-      ...prev,
-      ...incoming.filter((f) => f.type.startsWith("image/")),
-    ]);
+  const addFiles = (incoming: File[]) => {
+    const newItems: FileItem[] = incoming
+      .filter((f) => f.type.startsWith("image/"))
+      .map((f) => ({
+        file: f,
+        preview: URL.createObjectURL(f),
+        category: "potræt",
+        description: f.name.replace(/\.[^.]+$/, ""),
+        status: "pending",
+        message: "",
+      }));
+    setFileItems((prev) => [...prev, ...newItems]);
+  };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -79,22 +93,33 @@ export default function AdminPage() {
     addFiles(Array.from(e.dataTransfer.files));
   };
 
+  const updateItem = (index: number, patch: Partial<FileItem>) => {
+    setFileItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const removeItem = (index: number) => {
+    setFileItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleUpload = async () => {
-    if (!files.length) return;
+    const pending = fileItems.filter((f) => f.status === "pending");
+    if (!pending.length) return;
     setUploading(true);
     setError("");
-    const log: string[] = [];
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      log[i] = `⏳ Uploader ${f.name}…`;
-      setProgress([...log]);
+    for (let i = 0; i < fileItems.length; i++) {
+      const item = fileItems[i];
+      if (item.status !== "pending") continue;
+
+      updateItem(i, { status: "uploading", message: "Uploader…" });
 
       const form = new FormData();
-      form.append("image", f);
-      form.append("category", category);
-      form.append("description", description || f.name.replace(/\.[^.]+$/, ""));
-      form.append("alt", f.name.replace(/\.[^.]+$/, ""));
+      form.append("image", item.file);
+      form.append("category", item.category);
+      form.append("description", item.description);
+      form.append("alt", item.description);
 
       try {
         const res = await fetch("/api/upload", {
@@ -104,24 +129,30 @@ export default function AdminPage() {
         });
 
         if (res.status === 401) {
-          setError("Forkert adgangskode. Genindlæs siden og prøv igen.");
+          setError("Forkert adgangskode. Log ind igen.");
           setAuthed(false);
           setUploading(false);
           return;
         }
-        log[i] = res.ok
-          ? `✅ ${f.name} uploadet!`
-          : `❌ ${f.name}: ${(await res.json()).error}`;
+
+        if (res.ok) {
+          updateItem(i, { status: "done", message: "✅ Uploadet!" });
+        } else {
+          const data = await res.json();
+          updateItem(i, { status: "error", message: `❌ ${data.error}` });
+        }
       } catch {
-        log[i] = `❌ ${f.name}: netværksfejl`;
+        updateItem(i, { status: "error", message: "❌ Netværksfejl" });
       }
-      setProgress([...log]);
     }
 
     setUploading(false);
-    setFiles([]);
-    setDescription("");
     fetchImages();
+
+    // Clear done items after 2 seconds
+    setTimeout(() => {
+      setFileItems((prev) => prev.filter((f) => f.status !== "done"));
+    }, 2000);
   };
 
   const handleDelete = async (id: number) => {
@@ -146,17 +177,14 @@ export default function AdminPage() {
     if (!profileFile) return;
     setProfileUploading(true);
     setProfileMsg("");
-
     const form = new FormData();
     form.append("image", profileFile);
-
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
         headers: { "x-admin-password": passwordRef.current },
         body: form,
       });
-
       if (res.ok) {
         const data = await res.json();
         setProfileUrl(data.url);
@@ -182,6 +210,22 @@ export default function AdminPage() {
     fontSize: "13px",
     letterSpacing: "0.05em",
     transition: "all 0.2s",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    background: "rgba(255,255,255,0.07)",
+    border: "1px solid rgba(255,255,255,0.15)",
+    borderRadius: "6px",
+    color: "white",
+    padding: "6px 10px",
+    fontSize: "13px",
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    cursor: "pointer",
   };
 
   // ── Login ─────────────────────────────────────────────────────────────────
@@ -233,15 +277,10 @@ export default function AdminPage() {
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAuth()}
             style={{
-              background: "rgba(255,255,255,0.07)",
-              border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: "6px",
-              color: "white",
+              ...inputStyle,
               padding: "10px 14px",
               fontSize: "15px",
-              outline: "none",
               width: "100%",
-              boxSizing: "border-box",
             }}
           />
           <button
@@ -255,7 +294,6 @@ export default function AdminPage() {
               fontSize: "15px",
               cursor: "pointer",
               fontWeight: 500,
-              letterSpacing: "0.03em",
             }}
           >
             Log ind
@@ -264,6 +302,8 @@ export default function AdminPage() {
       </div>
     );
   }
+
+  const pendingCount = fileItems.filter((f) => f.status === "pending").length;
 
   // ── Admin panel ───────────────────────────────────────────────────────────
   return (
@@ -309,7 +349,7 @@ export default function AdminPage() {
             SYLVIA PHOTOGRAPHY
           </p>
         </div>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "12px" }}>
           <a
             href="/"
             style={{
@@ -333,7 +373,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* ── Profile section ── */}
+      {/* ── Profilbillede ── */}
       <section style={{ marginBottom: "56px" }}>
         <h3
           style={{
@@ -356,7 +396,6 @@ export default function AdminPage() {
             flexWrap: "wrap",
           }}
         >
-          {/* Current profile */}
           <div
             style={{
               width: "80px",
@@ -374,7 +413,6 @@ export default function AdminPage() {
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           </div>
-
           <div
             style={{ display: "flex", flexDirection: "column", gap: "10px" }}
           >
@@ -386,15 +424,15 @@ export default function AdminPage() {
               }}
             >
               {profileUrl
-                ? "Nuværende profilbillede fra Cloudinary"
+                ? "Cloudinary profilbillede aktivt"
                 : "Bruger standard profilbillede"}
             </p>
             <div
               style={{
                 display: "flex",
                 gap: "10px",
-                alignItems: "center",
                 flexWrap: "wrap",
+                alignItems: "center",
               }}
             >
               <button
@@ -445,7 +483,7 @@ export default function AdminPage() {
         </div>
       </section>
 
-      {/* ── Upload section ── */}
+      {/* ── Upload ── */}
       <section style={{ marginBottom: "56px" }}>
         <h3
           style={{
@@ -472,7 +510,7 @@ export default function AdminPage() {
           style={{
             border: `1.5px dashed ${dragging ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.2)"}`,
             borderRadius: "8px",
-            padding: "48px 32px",
+            padding: "36px 32px",
             textAlign: "center",
             cursor: "pointer",
             background: dragging ? "rgba(255,255,255,0.05)" : "transparent",
@@ -508,190 +546,167 @@ export default function AdminPage() {
           </small>
         </div>
 
-        {/* Options & queue */}
-        {files.length > 0 && (
+        {/* Per-file list */}
+        {fileItems.length > 0 && (
           <div
             style={{
-              marginTop: "20px",
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: "8px",
-              padding: "20px",
+              marginTop: "16px",
               display: "flex",
               flexDirection: "column",
-              gap: "16px",
+              gap: "10px",
             }}
           >
-            <h4
-              style={{
-                margin: 0,
-                fontSize: "13px",
-                fontWeight: 400,
-                color: "rgba(255,255,255,0.6)",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {files.length} billede{files.length > 1 ? "r" : ""} klar til
-              upload
-            </h4>
-
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
+            {fileItems.map((item, i) => (
+              <div
+                key={i}
                 style={{
-                  background: "rgba(255,255,255,0.07)",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: "6px",
-                  color: "white",
-                  padding: "8px 12px",
-                  fontSize: "14px",
-                  outline: "none",
-                  cursor: "pointer",
-                  flexShrink: 0,
+                  display: "flex",
+                  gap: "12px",
+                  alignItems: "center",
+                  background:
+                    item.status === "done"
+                      ? "rgba(76,175,80,0.1)"
+                      : item.status === "error"
+                        ? "rgba(220,0,0,0.1)"
+                        : "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  flexWrap: "wrap",
+                  transition: "background 0.3s",
                 }}
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c} style={{ background: "#1a1a1a" }}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                placeholder="Beskrivelse (valgfri)"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                style={{
-                  background: "rgba(255,255,255,0.07)",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: "6px",
-                  color: "white",
-                  padding: "8px 12px",
-                  fontSize: "14px",
-                  outline: "none",
-                  flex: 1,
-                  minWidth: "180px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-            >
-              {files.map((f, i) => (
-                <div
-                  key={i}
+                {/* Preview */}
+                <img
+                  src={item.preview}
+                  alt={item.file.name}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    background: "rgba(255,255,255,0.04)",
+                    width: "52px",
+                    height: "52px",
+                    objectFit: "cover",
                     borderRadius: "6px",
-                    padding: "8px 12px",
+                    flexShrink: 0,
                   }}
-                >
-                  <img
-                    src={URL.createObjectURL(f)}
-                    alt={f.name}
+                />
+
+                {/* Filename */}
+                <div style={{ flexShrink: 0, width: "140px" }}>
+                  <p
                     style={{
-                      width: "40px",
-                      height: "40px",
-                      objectFit: "cover",
-                      borderRadius: "4px",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: "13px",
-                      color: "rgba(255,255,255,0.7)",
+                      margin: 0,
+                      fontSize: "12px",
+                      color: "rgba(255,255,255,0.5)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {f.name}
-                  </span>
-                  <span
+                    {item.file.name}
+                  </p>
+                  <p
                     style={{
-                      fontSize: "12px",
+                      margin: "2px 0 0",
+                      fontSize: "11px",
                       color: "rgba(255,255,255,0.3)",
-                      flexShrink: 0,
                     }}
                   >
-                    {(f.size / 1024 / 1024).toFixed(1)} MB
-                  </span>
-                  <button
-                    onClick={() =>
-                      setFiles((prev) => prev.filter((_, j) => j !== i))
-                    }
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "rgba(255,255,255,0.3)",
-                      cursor: "pointer",
-                      fontSize: "16px",
-                      padding: "0 4px",
-                      transition: "color 0.2s",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = "#e00")}
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.color = "rgba(255,255,255,0.3)")
-                    }
-                  >
-                    ✕
-                  </button>
+                    {(item.file.size / 1024 / 1024).toFixed(1)} MB
+                  </p>
                 </div>
-              ))}
-            </div>
 
-            <button
-              onClick={handleUpload}
-              disabled={uploading}
-              style={{
-                background: "white",
-                color: "#0d0d0d",
-                border: "none",
-                borderRadius: "6px",
-                padding: "12px",
-                fontSize: "14px",
-                cursor: uploading ? "not-allowed" : "pointer",
-                fontWeight: 500,
-                letterSpacing: "0.03em",
-                opacity: uploading ? 0.5 : 1,
-                transition: "opacity 0.2s",
-              }}
-            >
-              {uploading
-                ? "Uploader…"
-                : `Upload ${files.length} billede${files.length > 1 ? "r" : ""}`}
-            </button>
-          </div>
-        )}
+                {/* Category */}
+                <select
+                  value={item.category}
+                  onChange={(e) => updateItem(i, { category: e.target.value })}
+                  disabled={item.status !== "pending"}
+                  style={{ ...selectStyle, width: "130px" }}
+                >
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c} style={{ background: "#1a1a1a" }}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
 
-        {progress.length > 0 && (
-          <div
-            style={{
-              marginTop: "12px",
-              background: "rgba(255,255,255,0.04)",
-              borderRadius: "6px",
-              padding: "14px 16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-            }}
-          >
-            {progress.map((msg, i) => (
-              <div
-                key={i}
-                style={{ fontSize: "13px", color: "rgba(255,255,255,0.65)" }}
-              >
-                {msg}
+                {/* Description */}
+                <input
+                  type="text"
+                  value={item.description}
+                  onChange={(e) =>
+                    updateItem(i, { description: e.target.value })
+                  }
+                  disabled={item.status !== "pending"}
+                  placeholder="Beskrivelse…"
+                  style={{ ...inputStyle, flex: 1, minWidth: "140px" }}
+                />
+
+                {/* Status / remove */}
+                <div
+                  style={{
+                    flexShrink: 0,
+                    minWidth: "80px",
+                    fontSize: "13px",
+                    textAlign: "right",
+                  }}
+                >
+                  {item.status === "pending" && (
+                    <button
+                      onClick={() => removeItem(i)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "rgba(255,255,255,0.3)",
+                        cursor: "pointer",
+                        fontSize: "16px",
+                        transition: "color 0.2s",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "#e00")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.color = "rgba(255,255,255,0.3)")
+                      }
+                    >
+                      ✕
+                    </button>
+                  )}
+                  {item.status === "uploading" && (
+                    <span style={{ color: "rgba(255,255,255,0.5)" }}>⏳</span>
+                  )}
+                  {item.status === "done" && (
+                    <span style={{ color: "#4caf50" }}>✅</span>
+                  )}
+                  {item.status === "error" && (
+                    <span style={{ color: "#ff6b6b", fontSize: "11px" }}>
+                      {item.message}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
+
+            {pendingCount > 0 && (
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                style={{
+                  background: "white",
+                  color: "#0d0d0d",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "12px",
+                  fontSize: "14px",
+                  cursor: uploading ? "not-allowed" : "pointer",
+                  fontWeight: 500,
+                  opacity: uploading ? 0.5 : 1,
+                  marginTop: "4px",
+                }}
+              >
+                {uploading
+                  ? "Uploader…"
+                  : `Upload ${pendingCount} billede${pendingCount > 1 ? "r" : ""}`}
+              </button>
+            )}
           </div>
         )}
 
@@ -704,7 +719,7 @@ export default function AdminPage() {
         )}
       </section>
 
-      {/* ── Gallery management ── */}
+      {/* ── Galleri administration ── */}
       <section>
         <h3
           style={{
@@ -766,7 +781,6 @@ export default function AdminPage() {
                   }}
                 />
 
-                {/* Delete button always visible bottom-right */}
                 <button
                   onClick={() =>
                     setDeleteConfirm(deleteConfirm === img.id ? null : img.id)
@@ -782,7 +796,6 @@ export default function AdminPage() {
                     padding: "5px 8px",
                     cursor: "pointer",
                     fontSize: "13px",
-                    transition: "background 0.2s",
                     zIndex: 2,
                   }}
                   onMouseEnter={(e) =>
@@ -795,7 +808,6 @@ export default function AdminPage() {
                   🗑
                 </button>
 
-                {/* Overlay with info */}
                 <div
                   className="adm-ov"
                   style={{
@@ -837,7 +849,6 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* Confirm delete */}
                 {deleteConfirm === img.id && (
                   <div
                     style={{

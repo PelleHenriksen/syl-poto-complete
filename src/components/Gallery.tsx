@@ -7,6 +7,7 @@ const categories = [
   "potræt",
   "byggninger",
   "Dyr",
+  "natur",
 ];
 
 interface GalleryImage {

@@ -7,6 +7,7 @@ const CATEGORIES = [
   "potræt",
   "byggninger",
   "Dyr",
+  "natur",
 ];
 
 interface DbImage {
